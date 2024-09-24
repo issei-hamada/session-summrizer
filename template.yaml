@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  hamada-test
+
+Globals:
+  Function:
+    Architectures:
+      - x86_64
+    Handler: app.lambda_handler
+    MemorySize: 128
+    Runtime: python3.11
+    Timeout: 600
+    Tracing: Active
+
+Parameters:
+  Region:
+    Type: String
+    Default: ap-northeast-1
+
+  MaxTokens:
+    Type: String
+    Default: '200000'
+
+  SonnetId:
+    Type: String
+    Default: anthropic.claude-3-5-sonnet-20240620-v1:0
+
+Resources:
+  DlQueue:
+    Type: AWS::SQS::Queue
+
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DlQueue.Arn
+        maxReceiveCount: 5
+
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEvents
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: 
+              - SQS:SendMessage
+              - SQS:ReceiveMessage
+              - SQS:DeleteMessage
+              - SQS:GetQueueAttributes
+              - SQS:GetQueueUrl
+            Resource: !GetAtt Queue.Arn
+      Queues:
+        - !Ref Queue
+
+  TargetBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  TempBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  LambdaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SQS
+            Action:
+              - sqs:DeleteMessage
+              - sqs:ReceiveMessage
+              - sqs:SendMessage
+              - sqs:GetQueueAttributes
+            Resource: !GetAtt Queue.Arn
+            Effect: Allow
+          - Sid: Bedrock
+            Action:
+              - bedrock:InvokeModel
+            Resource: '*'
+            Effect: Allow
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Ref LambdaPolicy
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/
+      Environment:
+        Variables:
+          TEMP_BUCKET: !Ref TempBucket
+          SOURCE_BUCKET: !Ref TargetBucket
+          MAX_TOKENS: !Ref MaxTokens
+          SONNET_ID: !Ref SonnetId
+          REGION_CONFIG: !Ref Region
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt Queue.Arn
+            BatchSize: 1
+            Enabled: true
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Function}
+      RetentionInDays: 180
