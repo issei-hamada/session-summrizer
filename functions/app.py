@@ -59,7 +59,7 @@ def invoke_model(document, file_path):
     initial_delay = 1
     for i in range(max_retries):
         try:
-            response = bedrock_runtime.invoke_model(body=body, modelId=os.environ['SONNET_ID'])
+            response = bedrock_runtime.invoke_model(body=body, modelId=os.environ['MODEL_ID'])
             response_body = json.loads(response.get('body').read())
             logger.info(f'{response_body=}')
     

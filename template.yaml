@@ -14,17 +14,17 @@ Globals:
     Tracing: Active
 
 Parameters:
-  Region:
+  InvokeRegion:
     Type: String
-    Default: ap-northeast-1
+    Default: us-west-2
 
   MaxTokens:
     Type: String
     Default: '200000'
 
-  SonnetId:
+  ModelId:
     Type: String
-    Default: anthropic.claude-3-5-sonnet-20240620-v1:0
+    Default: anthropic.claude-3-5-haiku-20241022-v1:0
 
 Resources:
   DlQueue:
@@ -73,6 +73,10 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt Queue.Arn
 
   LambdaPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -122,8 +126,8 @@ Resources:
           TEMP_BUCKET: !Ref TempBucket
           SOURCE_BUCKET: !Ref TargetBucket
           MAX_TOKENS: !Ref MaxTokens
-          SONNET_ID: !Ref SonnetId
-          REGION_CONFIG: !Ref Region
+          MODEL_ID: !Ref ModelId
+          REGION_CONFIG: !Ref InvokeRegion
       Role: !GetAtt LambdaRole.Arn
       Events:
         SQSEvent:
